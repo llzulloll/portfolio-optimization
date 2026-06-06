@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Roth IRA Picks</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    :root {
+      --bg:      #0d1117;
+      --card:    #161b22;
+      --border:  #30363d;
+      --green:   #3fb950;
+      --red:     #f85149;
+      --yellow:  #d29922;
+      --blue:    #58a6ff;
+      --purple:  #bc8cff;
+      --muted:   #8b949e;
+    }
+
+    body { background: var(--bg); font-family: 'Segoe UI', system-ui, sans-serif; color: #e6edf3; }
+
+    /* ── Cards ── */
+    .pick-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      transition: transform .15s, box-shadow .15s, border-color .15s;
+      cursor: pointer;
+    }
+    .pick-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 32px rgba(0,0,0,.5);
+      border-color: var(--blue);
+    }
+
+    /* ── Score badge ── */
+    .score-num { font-size: 2rem; font-weight: 900; line-height: 1; }
+    .s-hot    { color: var(--green); }
+    .s-mid    { color: var(--yellow); }
+    .s-cold   { color: var(--red); }
+
+    /* ── Ticker ── */
+    .ticker { font-size: 1.9rem; font-weight: 900; letter-spacing: -.5px; }
+
+    /* ── Return pills ── */
+    .ret {
+      font-size: .7rem; font-weight: 700;
+      padding: .18rem .55rem; border-radius: 20px;
+    }
+    .ret-up   { background: rgba(63,185,80,.15);  color: var(--green); }
+    .ret-dn   { background: rgba(248,81,73,.15);  color: var(--red); }
+    .ret-flat { background: rgba(88,166,255,.12); color: var(--blue); }
+
+    /* ── Signal badges ── */
+    .sig {
+      font-size: .65rem; font-weight: 600;
+      padding: .15rem .45rem; border-radius: 20px;
+      border: 1px solid transparent;
+    }
+    .sig-success { background: rgba(63,185,80,.15);  color: var(--green);  border-color: rgba(63,185,80,.3); }
+    .sig-warning { background: rgba(210,153,34,.15); color: var(--yellow); border-color: rgba(210,153,34,.3); }
+    .sig-danger  { background: rgba(248,81,73,.15);  color: var(--red);    border-color: rgba(248,81,73,.3); }
+    .sig-info    { background: rgba(188,140,255,.15);color: var(--purple); border-color: rgba(188,140,255,.3); }
+
+    /* ── Allocation bar ── */
+    .alloc-track { height: 5px; background: var(--border); border-radius: 3px; }
+    .alloc-fill  { height: 100%; border-radius: 3px;
+                   background: linear-gradient(90deg, var(--blue), var(--purple)); }
+
+    /* ── Stats strip ── */
+    .stat-box {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: .9rem 1rem;
+    }
+
+    /* ── Loading overlay ── */
+    #overlay {
+      position: fixed; inset: 0; background: rgba(13,17,23,.96);
+      z-index: 9999; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: .75rem;
+    }
+    .ring {
+      width: 52px; height: 52px;
+      border: 3px solid var(--border);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Navbar ── */
+    .topbar {
+      background: var(--card); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+
+    /* ── Portfolio table ── */
+    .pf-table th { font-size: .72rem; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); }
+    .pf-table td { vertical-align: middle; }
+    .gain { color: var(--green); }
+    .loss { color: var(--red); }
+
+    /* ── Why section ── */
+    .why-text {
+      font-size: .72rem; color: var(--muted);
+      line-height: 1.4; margin-top: .4rem;
+    }
+
+    /* ── Rank label ── */
+    .rank-lbl { font-size: .65rem; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+
+    /* ── Leveraged warning ── */
+    .lev-warn { font-size: .68rem; color: var(--red); margin-top: .35rem; }
+
+    /* ── Section header ── */
+    .sec-hdr {
+      font-size: .72rem; text-transform: uppercase;
+      letter-spacing: .5px; color: var(--muted); margin-bottom: .75rem;
+    }
+
+    /* ── Score legend ── */
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+    /* ── Modal ── */
+    .modal-content { background: var(--card); border: 1px solid var(--border); }
+    .modal-header  { border-bottom-color: var(--border); }
+    .modal-footer  { border-top-color: var(--border); }
+
+    /* ── Period btns ── */
+    .period-btn { font-size: .75rem; }
+    .period-btn.active { background: var(--blue)!important; border-color: var(--blue)!important; color: #fff!important; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════ LOADING OVERLAY -->
+<div id="overlay">
+  <div class="ring"></div>
+  <h5 class="mb-0">Scanning the market…</h5>
+  <p class="text-secondary mb-0 small" id="loadMsg">Fetching prices from Yahoo Finance…</p>
+  <p style="font-size:.68rem; color: var(--muted)">First load takes ~20 seconds</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ TOPBAR -->
+<nav class="topbar px-4 py-2 d-flex align-items-center justify-content-between">
+  <div class="d-flex align-items-center gap-2">
+    <span style="font-size:1.1rem">📈</span>
+    <span class="fw-bold">Roth IRA Picks</span>
+    <span class="badge bg-danger bg-opacity-25 text-danger" style="font-size:.65rem">AGGRESSIVE</span>
+  </div>
+  <div class="d-flex align-items-center gap-3">
+    <span class="text-secondary" style="font-size:.75rem" id="lastUpdated"></span>
+    <button class="btn btn-sm btn-outline-secondary" id="refreshBtn" onclick="loadPicks(true)">↻ Refresh</button>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════ MAIN CONTENT -->
+<div class="container-fluid px-3 px-md-4 pb-5">
+
+  <!-- Stats strip -->
+  <div class="row g-2 mt-3 mb-4" id="statsRow" style="display:none!important">
+    <div class="col-6 col-md-3">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.7rem">Budget</div>
+        <div class="fw-bold fs-5" style="color:var(--blue)">$700</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.7rem">Stocks Scanned</div>
+        <div class="fw-bold fs-5" id="statScanned">—</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.7rem">Strategy</div>
+        <div class="fw-bold" style="font-size:.85rem; color:var(--yellow)">Aggressive Momentum</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.7rem">Next Rebalance</div>
+        <div class="fw-bold" style="font-size:.85rem" id="statNext">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Picks section -->
+  <div id="picksSection" style="display:none">
+
+    <!-- Score legend -->
+    <div class="d-flex align-items-center gap-3 mb-2" style="font-size:.7rem; color:var(--muted)">
+      <span class="sec-hdr mb-0">This Month's Top Picks</span>
+      <span><span class="legend-dot me-1" style="background:var(--green)"></span>80+ Strong</span>
+      <span><span class="legend-dot me-1" style="background:var(--yellow)"></span>60–80 Good</span>
+      <span><span class="legend-dot me-1" style="background:var(--red)"></span>&lt;60 Weak</span>
+    </div>
+
+    <!-- Picks grid -->
+    <div class="row g-3" id="picksGrid"></div>
+
+    <!-- Disclaimer -->
+    <div class="mt-4 p-3 rounded" style="background:rgba(248,81,73,.07); border:1px solid rgba(248,81,73,.2); font-size:.72rem; color:var(--muted)">
+      ⚠️ <strong style="color:#e6edf3">Not financial advice.</strong>
+      This is a momentum screener — past performance ≠ future results.
+      High-risk picks for an aggressive risk tolerance. You can lose money, including the entire amount.
+      Leveraged ETFs (TQQQ, SOXL, TECL) suffer volatility decay — only hold them in strong uptrends and exit fast when momentum breaks.
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ PORTFOLIO TRACKER -->
+    <div class="mt-5">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <div class="sec-hdr mb-0">Your Portfolio</div>
+        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addModal">
+          + Log a Trade
+        </button>
+      </div>
+
+      <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden">
+        <div class="table-responsive">
+          <table class="table table-dark pf-table mb-0">
+            <thead>
+              <tr>
+                <th class="ps-3">Ticker</th>
+                <th>Shares</th>
+                <th>Avg Cost</th>
+                <th>Current</th>
+                <th>Value</th>
+                <th>P&amp;L</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="pfBody">
+              <tr id="emptyRow">
+                <td colspan="7" class="text-center py-4 text-secondary small">
+                  No positions yet — log your first trade above
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════ FULL RANKINGS -->
+    <div class="mt-5">
+      <div class="sec-hdr">Full Rankings (all scored stocks)</div>
+      <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden">
+        <div class="table-responsive">
+          <table class="table table-dark mb-0" style="font-size:.8rem">
+            <thead>
+              <tr style="color:var(--muted); font-size:.7rem">
+                <th class="ps-3">#</th>
+                <th>Ticker</th>
+                <th>Category</th>
+                <th>Score</th>
+                <th>1M</th>
+                <th>3M</th>
+                <th>6M</th>
+                <th>RSI</th>
+              </tr>
+            </thead>
+            <tbody id="allScoresBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /picksSection -->
+</div>
+
+<!-- ══════════════════════════════════════════════════════ CHART MODAL -->
+<div class="modal fade" id="chartModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0" id="chartTitle"></h5>
+          <div class="text-secondary" style="font-size:.75rem" id="chartWhy"></div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex gap-2 mb-3">
+          <button class="btn btn-sm btn-outline-secondary period-btn" data-period="1mo"  onclick="switchPeriod(this,'1mo')">1M</button>
+          <button class="btn btn-sm btn-outline-secondary period-btn active" data-period="3mo" onclick="switchPeriod(this,'3mo')">3M</button>
+          <button class="btn btn-sm btn-outline-secondary period-btn" data-period="6mo"  onclick="switchPeriod(this,'6mo')">6M</button>
+          <button class="btn btn-sm btn-outline-secondary period-btn" data-period="1y"   onclick="switchPeriod(this,'1y')">1Y</button>
+        </div>
+        <canvas id="priceCanvas" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ ADD POSITION MODAL -->
+<div class="modal fade" id="addModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Log a Trade</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label text-secondary small">Ticker Symbol</label>
+          <input class="form-control" id="inTicker" placeholder="NVDA" style="text-transform:uppercase">
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col">
+            <label class="form-label text-secondary small">Shares</label>
+            <input class="form-control" id="inShares" type="number" placeholder="2" step="0.001" min="0">
+          </div>
+          <div class="col">
+            <label class="form-label text-secondary small">Price Paid (per share)</label>
+            <input class="form-control" id="inPrice" type="number" placeholder="130.00" step="0.01" min="0">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label text-secondary small">Date Purchased</label>
+          <input class="form-control" id="inDate" type="date">
+        </div>
+        <div class="text-secondary" style="font-size:.72rem">
+          💡 Fidelity and Schwab support fractional shares if your allocation is less than one full share.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="addPosition()">Add Position</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+
+// ─── State ───────────────────────────────────────────────────────────────────
+let priceChart   = null;
+let chartTicker  = null;
+let chartPeriod  = '3mo';
+let portfolio    = [];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const scoreClass = s => s >= 75 ? 's-hot' : s >= 55 ? 's-mid' : 's-cold';
+const retClass   = v => v > 0 ? 'ret-up' : v < 0 ? 'ret-dn' : 'ret-flat';
+const sign       = v => v > 0 ? '+' : '';
+const fmt$       = v => '$' + Math.abs(v).toFixed(2);
+const sigClass   = c => ({success:'sig-success', warning:'sig-warning', danger:'sig-danger', info:'sig-info'})[c] || 'sig-info';
+
+function retPill(val, label) {
+  return `<span class="ret ${retClass(val)}">${label}: ${sign(val)}${val}%</span>`;
+}
+
+// ─── Render picks ─────────────────────────────────────────────────────────────
+const RANKS = ['🥇','🥈','🥉','4th','5th','6th','7th','8th'];
+
+function renderPicks(data) {
+  const grid = document.getElementById('picksGrid');
+  grid.innerHTML = '';
+
+  data.picks.forEach((p, i) => {
+    const catColor = p.category === 'AI & High-Growth Tech' ? '#58a6ff'
+                   : p.category === 'Small-Cap Rockets'    ? '#d29922'
+                   : '#f85149';
+    const catBg = p.category === 'AI & High-Growth Tech' ? 'rgba(88,166,255,.15)'
+                : p.category === 'Small-Cap Rockets'    ? 'rgba(210,153,34,.15)'
+                : 'rgba(248,81,73,.15)';
+
+    const sigs = p.signals.map(s =>
+      `<span class="sig ${sigClass(s.cls)}">${s.text}</span>`
+    ).join(' ');
+
+    const shares = Math.floor(p.alloc_usd / p.price);
+    const sharesText = shares >= 1
+      ? `≈ ${shares} share${shares !== 1 ? 's' : ''}`
+      : `≈ $${p.alloc_usd} (fractional)`;
+
+    const levWarn = p.leveraged
+      ? `<div class="lev-warn">⚠️ 3× leveraged — exit fast if momentum breaks</div>`
+      : '';
+
+    grid.innerHTML += `
+      <div class="col-12 col-md-6 col-xl-4">
+        <div class="pick-card p-3 h-100 d-flex flex-column" onclick="openChart('${p.ticker}','${p.why}')">
+
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <div class="rank-lbl">${RANKS[i] || (i+1)} pick</div>
+              <div class="ticker">${p.ticker}</div>
+              <span class="badge mt-1" style="background:${catBg}; color:${catColor}; font-size:.63rem; font-weight:700">
+                ${p.category}
+              </span>
+            </div>
+            <div class="text-end">
+              <div class="${scoreClass(p.score)} score-num">${p.score}</div>
+              <div style="font-size:.6rem; color:var(--muted)">SCORE</div>
+            </div>
+          </div>
+
+          <div class="d-flex align-items-baseline gap-2 mb-3">
+            <span class="fw-bold" style="font-size:1.1rem">$${p.price}</span>
+            <span class="text-secondary" style="font-size:.75rem">per share</span>
+          </div>
+
+          <div class="d-flex flex-wrap gap-1 mb-2">
+            ${retPill(p.r1m,'1M')}
+            ${retPill(p.r3m,'3M')}
+            ${retPill(p.r6m,'6M')}
+          </div>
+
+          <div class="d-flex flex-wrap gap-1 mb-2">
+            ${sigs}
+          </div>
+
+          ${levWarn}
+
+          <div class="mt-auto pt-2" style="border-top:1px solid var(--border)">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <span style="font-size:.72rem; color:var(--muted)">Suggested allocation</span>
+              <span style="font-size:.85rem; font-weight:700">
+                $${p.alloc_usd}
+                <span style="color:var(--muted); font-weight:400">(${p.alloc_pct}%)</span>
+              </span>
+            </div>
+            <div class="alloc-track">
+              <div class="alloc-fill" style="width:${Math.min(p.alloc_pct * 1.5, 100)}%"></div>
+            </div>
+            <div style="font-size:.68rem; color:var(--muted); margin-top:.3rem">${sharesText} @ $${p.price}</div>
+          </div>
+
+        </div>
+      </div>
+    `;
+  });
+}
+
+// ─── Render full rankings table ───────────────────────────────────────────────
+function renderAllScores(scores) {
+  const body = document.getElementById('allScoresBody');
+  body.innerHTML = scores.map((s, i) => {
+    const r1c = s.r1m > 0 ? 'gain' : s.r1m < 0 ? 'loss' : '';
+    const r3c = s.r3m > 0 ? 'gain' : s.r3m < 0 ? 'loss' : '';
+    const r6c = s.r6m > 0 ? 'gain' : s.r6m < 0 ? 'loss' : '';
+    const sc  = scoreClass(s.score);
+    return `
+      <tr>
+        <td class="ps-3 text-secondary">${i+1}</td>
+        <td class="fw-bold">${s.ticker}</td>
+        <td style="font-size:.72rem; color:var(--muted)">${s.category}</td>
+        <td class="${sc} fw-bold">${s.score}</td>
+        <td class="${r1c}">${sign(s.r1m)}${s.r1m}%</td>
+        <td class="${r3c}">${sign(s.r3m)}${s.r3m}%</td>
+        <td class="${r6c}">${sign(s.r6m)}${s.r6m}%</td>
+        <td>${s.rsi}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// ─── Load picks from API ──────────────────────────────────────────────────────
+async function loadPicks(force = false) {
+  document.getElementById('overlay').style.display = 'flex';
+  document.getElementById('picksSection').style.display = 'none';
+  document.getElementById('statsRow').style.setProperty('display','none','important');
+
+  const msgs = [
+    'Fetching prices from Yahoo Finance…',
+    'Computing momentum scores…',
+    'Checking moving average signals…',
+    'Calculating RSI for each stock…',
+    'Scoring volume trends…',
+    'Ranking your picks…',
+    'Almost there…',
+  ];
+  let mi = 0;
+  const msgEl = document.getElementById('loadMsg');
+  const iv = setInterval(() => { msgEl.textContent = msgs[mi++ % msgs.length]; }, 3500);
+
+  try {
+    const res  = await fetch(`/api/picks${force ? '?force=1' : ''}`);
+    const data = await res.json();
+    clearInterval(iv);
+
+    if (data.error) {
+      document.getElementById('overlay').style.display = 'none';
+      alert('Error: ' + data.error);
+      return;
+    }
+
+    document.getElementById('statScanned').textContent  = data.total_scored + ' stocks';
+    document.getElementById('statNext').textContent     = data.next_refresh;
+    document.getElementById('lastUpdated').textContent  =
+      (data.from_cache ? '⚡ cached · ' : '✓ fresh · ') + data.generated_at;
+
+    renderPicks(data);
+    if (data.all_scores) renderAllScores(data.all_scores);
+    await loadPortfolio();
+
+    document.getElementById('overlay').style.display = 'none';
+    document.getElementById('statsRow').style.removeProperty('display');
+    document.getElementById('picksSection').style.display = 'block';
+
+  } catch (err) {
+    clearInterval(iv);
+    document.getElementById('overlay').style.display = 'none';
+    alert('Failed to load. Make sure the server is running (python app.py).');
+    console.error(err);
+  }
+}
+
+// ─── Chart ────────────────────────────────────────────────────────────────────
+async function openChart(ticker, why) {
+  chartTicker = ticker;
+  chartPeriod = '3mo';
+  document.getElementById('chartTitle').textContent = ticker;
+  document.getElementById('chartWhy').textContent   = why || '';
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  document.querySelector('[data-period="3mo"]').classList.add('active');
+  new bootstrap.Modal(document.getElementById('chartModal')).show();
+  await drawChart(ticker, '3mo');
+}
+
+function switchPeriod(btn, period) {
+  chartPeriod = period;
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  drawChart(chartTicker, period);
+}
+
+async function drawChart(ticker, period) {
+  try {
+    const res  = await fetch(`/api/chart/${ticker}?period=${period}`);
+    const data = await res.json();
+    if (priceChart) priceChart.destroy();
+
+    const ctx = document.getElementById('priceCanvas').getContext('2d');
+    priceChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: data.dates,
+        datasets: [
+          {
+            label: ticker,
+            data: data.prices,
+            borderColor: '#58a6ff',
+            backgroundColor: 'rgba(88,166,255,0.07)',
+            borderWidth: 2,
+            pointRadius: 0,
+            fill: true,
+            tension: 0.3,
+          },
+          {
+            label: '20MA',
+            data: data.ma20,
+            borderColor: 'rgba(210,153,34,0.7)',
+            borderWidth: 1.5,
+            borderDash: [4,3],
+            pointRadius: 0,
+            fill: false,
+            tension: 0.3,
+            spanGaps: true,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: true, labels: { color: '#8b949e', boxWidth: 12, font: { size: 11 } } },
+          tooltip: {
+            backgroundColor: '#161b22',
+            borderColor: '#30363d',
+            borderWidth: 1,
+            titleColor: '#e6edf3',
+            bodyColor: '#8b949e',
+            callbacks: { label: ctx => ` $${ctx.parsed.y?.toFixed(2)}` }
+          }
+        },
+        scales: {
+          x: { ticks: { color:'#8b949e', maxTicksLimit:7, font:{size:11} }, grid:{color:'#21262d'} },
+          y: { ticks: { color:'#8b949e', callback: v=>'$'+v, font:{size:11} }, grid:{color:'#21262d'} }
+        }
+      }
+    });
+  } catch(e) { console.error('Chart error', e); }
+}
+
+// ─── Portfolio ────────────────────────────────────────────────────────────────
+async function loadPortfolio() {
+  const res  = await fetch('/api/portfolio');
+  const data = await res.json();
+  portfolio  = data.positions || [];
+  await renderPortfolio();
+}
+
+async function renderPortfolio() {
+  const body = document.getElementById('pfBody');
+  if (!portfolio.length) {
+    body.innerHTML = `<tr id="emptyRow"><td colspan="7" class="text-center py-4 text-secondary small">
+      No positions yet — log your first trade above
+    </td></tr>`;
+    return;
+  }
+
+  // Fetch current prices in parallel
+  const tickers = [...new Set(portfolio.map(p => p.ticker))];
+  const prices  = {};
+  await Promise.all(tickers.map(async t => {
+    try {
+      const r = await fetch(`/api/chart/${t}?period=5d`);
+      const d = await r.json();
+      prices[t] = d.prices?.at(-1) ?? null;
+    } catch { prices[t] = null; }
+  }));
+
+  let totalCost = 0, totalValue = 0, hasValue = false;
+  let rows = '';
+
+  portfolio.forEach(pos => {
+    const cur   = prices[pos.ticker];
+    const cost  = pos.shares * pos.avg_cost;
+    const val   = cur != null ? pos.shares * cur : null;
+    const pl    = val != null ? val - cost : null;
+    const plPct = pl != null ? (pl / cost * 100) : null;
+
+    totalCost += cost;
+    if (val != null) { totalValue += val; hasValue = true; }
+
+    const plStr = pl != null
+      ? `<span class="${pl >= 0 ? 'gain' : 'loss'}">${sign(pl)}${fmt$(pl)} (${sign(plPct)}${plPct.toFixed(1)}%)</span>`
+      : '—';
+
+    rows += `
+      <tr>
+        <td class="ps-3 fw-bold">${pos.ticker}</td>
+        <td>${pos.shares}</td>
+        <td>$${pos.avg_cost.toFixed(2)}</td>
+        <td>${cur != null ? '$'+cur.toFixed(2) : '—'}</td>
+        <td>${val != null ? '$'+val.toFixed(2) : '—'}</td>
+        <td>${plStr}</td>
+        <td>
+          <button class="btn btn-sm btn-outline-danger py-0" style="font-size:.7rem"
+            onclick="removePosition('${pos.id}')">✕</button>
+        </td>
+      </tr>
+    `;
+  });
+
+  if (hasValue) {
+    const tPL    = totalValue - totalCost;
+    const tPLPct = (tPL / totalCost * 100);
+    rows += `
+      <tr style="border-top:2px solid var(--border); background:#0d1117">
+        <td class="ps-3 text-secondary fw-bold" colspan="4">Total</td>
+        <td class="fw-bold">$${totalValue.toFixed(2)}</td>
+        <td class="fw-bold">
+          <span class="${tPL >= 0 ? 'gain' : 'loss'}">${sign(tPL)}${fmt$(tPL)} (${sign(tPLPct)}${tPLPct.toFixed(1)}%)</span>
+        </td>
+        <td></td>
+      </tr>
+    `;
+  }
+
+  body.innerHTML = rows;
+}
+
+async function addPosition() {
+  const ticker = document.getElementById('inTicker').value.toUpperCase().trim();
+  const shares = parseFloat(document.getElementById('inShares').value);
+  const price  = parseFloat(document.getElementById('inPrice').value);
+  const date   = document.getElementById('inDate').value;
+
+  if (!ticker || isNaN(shares) || shares <= 0 || isNaN(price) || price <= 0) {
+    alert('Please fill in a valid ticker, number of shares, and price.');
+    return;
+  }
+
+  await fetch('/api/portfolio', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticker, shares, avg_cost: price, date })
+  });
+
+  bootstrap.Modal.getInstance(document.getElementById('addModal')).hide();
+  document.getElementById('inTicker').value = '';
+  document.getElementById('inShares').value = '';
+  document.getElementById('inPrice').value  = '';
+  await loadPortfolio();
+}
+
+async function removePosition(id) {
+  if (!confirm('Remove this position?')) return;
+  await fetch(`/api/portfolio/${id}`, { method: 'DELETE' });
+  portfolio = portfolio.filter(p => p.id !== id);
+  await renderPortfolio();
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+document.getElementById('inDate').value = new Date().toISOString().split('T')[0];
+loadPicks(false);
+</script>
+</body>
+</html>

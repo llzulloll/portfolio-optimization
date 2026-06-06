@@ -1,0 +1,10 @@
+picks_cache.json
+portfolio.json
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+*.egg-info/
+dist/
+build/
