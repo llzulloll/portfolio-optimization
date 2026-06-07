@@ -143,6 +143,10 @@ def _score_ticker(ticker: str, category: str) -> dict | None:
             "signals":   signals,
             "why":       why,
             "leveraged": category == "Leveraged ETFs",
+            "score_mom":   round(mom, 1),
+            "score_trend": round(float(trend), 1),
+            "score_rsi":   round(rsi_score, 1),
+            "score_vol":   round(vol_score, 1),
         }
     except Exception as e:
         print(f"  [skip] {ticker}: {e}")
@@ -208,7 +212,7 @@ def get_monthly_picks(force: bool = False, budget: float = 700, top_n: int = 6) 
         "from_cache":   False,
         "total_scored": len(results),
         "next_refresh": (datetime.now() + timedelta(days=30)).strftime("%B %d, %Y"),
-        "all_scores":   sorted(results, key=lambda x: x["score"], reverse=True)[:20],
+        "all_scores":   sorted(results, key=lambda x: x["score"], reverse=True),
     }
     with open(CACHE_FILE, "w") as f:
         json.dump(out, f, indent=2)

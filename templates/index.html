@@ -174,14 +174,14 @@
     </div>
     <div class="col-6 col-md-3">
       <div class="stat-box text-center">
-        <div class="text-secondary" style="font-size:.7rem">Strategy</div>
-        <div class="fw-bold" style="font-size:.85rem; color:var(--yellow)">Aggressive Momentum</div>
+        <div class="text-secondary" style="font-size:.7rem">Next Rebalance</div>
+        <div class="fw-bold" style="font-size:.85rem" id="statNext">—</div>
       </div>
     </div>
     <div class="col-6 col-md-3">
       <div class="stat-box text-center">
-        <div class="text-secondary" style="font-size:.7rem">Next Rebalance</div>
-        <div class="fw-bold" style="font-size:.85rem" id="statNext">—</div>
+        <div class="text-secondary" style="font-size:.7rem">Days Until Rebalance</div>
+        <div class="fw-bold fs-5" id="statDays">—</div>
       </div>
     </div>
   </div>
@@ -195,6 +195,7 @@
       <span><span class="legend-dot me-1" style="background:var(--green)"></span>80+ Strong</span>
       <span><span class="legend-dot me-1" style="background:var(--yellow)"></span>60–80 Good</span>
       <span><span class="legend-dot me-1" style="background:var(--red)"></span>&lt;60 Weak</span>
+      <button id="copyBtn" onclick="copyTickers()" class="btn btn-sm btn-outline-secondary ms-2 py-0" style="font-size:.7rem">📋 Copy Tickers</button>
     </div>
 
     <!-- Picks grid -->
@@ -417,7 +418,7 @@ let chartPeriod  = '3mo';
 let portfolio    = [];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const scoreClass = s => s >= 75 ? 's-hot' : s >= 55 ? 's-mid' : 's-cold';
+const scoreClass = s => s >= 80 ? 's-hot' : s >= 60 ? 's-mid' : 's-cold';
 const retClass   = v => v > 0 ? 'ret-up' : v < 0 ? 'ret-dn' : 'ret-flat';
 const sign       = v => v > 0 ? '+' : '';
 const fmt$       = v => '$' + Math.abs(v).toFixed(2);
@@ -433,6 +434,9 @@ const RANKS = ['🥇','🥈','🥉','4th','5th','6th','7th','8th'];
 function renderPicks(data) {
   const grid = document.getElementById('picksGrid');
   grid.innerHTML = '';
+
+  // Scale bars so the largest allocation fills 100% of the bar (improvement #3)
+  const maxAlloc = Math.max(...data.picks.map(p => p.alloc_pct));
 
   data.picks.forEach((p, i) => {
     const catColor = p.category === 'AI & High-Growth Tech' ? '#58a6ff'
@@ -455,6 +459,20 @@ function renderPicks(data) {
       ? `<div class="lev-warn">⚠️ 3× leveraged — exit fast if momentum breaks</div>`
       : '';
 
+    // Score breakdown (improvement #6)
+    const subScores = (p.score_mom != null) ? `
+      <div class="d-flex gap-2 mb-2" style="font-size:.63rem; color:var(--muted)">
+        <span title="Price momentum (1M/3M/6M returns)">Mom <strong style="color:var(--blue)">${p.score_mom?.toFixed(0)??'—'}</strong></span>
+        <span style="color:var(--border)">|</span>
+        <span title="Moving average signals">Trend <strong style="color:var(--blue)">${p.score_trend?.toFixed(0)??'—'}</strong></span>
+        <span style="color:var(--border)">|</span>
+        <span title="RSI health score">RSI <strong style="color:var(--blue)">${p.score_rsi?.toFixed(0)??'—'}</strong></span>
+        <span style="color:var(--border)">|</span>
+        <span title="Volume surge score">Vol <strong style="color:var(--blue)">${p.score_vol?.toFixed(0)??'—'}</strong></span>
+      </div>` : '';
+
+    const barWidth = (p.alloc_pct / maxAlloc * 100).toFixed(1);
+
     grid.innerHTML += `
       <div class="col-12 col-md-6 col-xl-4">
         <div class="pick-card p-3 h-100 d-flex flex-column" onclick="openChart('${p.ticker}','${p.why}')">
@@ -473,7 +491,7 @@ function renderPicks(data) {
             </div>
           </div>
 
-          <div class="d-flex align-items-baseline gap-2 mb-3">
+          <div class="d-flex align-items-baseline gap-2 mb-2">
             <span class="fw-bold" style="font-size:1.1rem">$${p.price}</span>
             <span class="text-secondary" style="font-size:.75rem">per share</span>
           </div>
@@ -483,6 +501,8 @@ function renderPicks(data) {
             ${retPill(p.r3m,'3M')}
             ${retPill(p.r6m,'6M')}
           </div>
+
+          ${subScores}
 
           <div class="d-flex flex-wrap gap-1 mb-2">
             ${sigs}
@@ -499,7 +519,7 @@ function renderPicks(data) {
               </span>
             </div>
             <div class="alloc-track">
-              <div class="alloc-fill" style="width:${Math.min(p.alloc_pct * 1.5, 100)}%"></div>
+              <div class="alloc-fill" style="width:${barWidth}%"></div>
             </div>
             <div style="font-size:.68rem; color:var(--muted); margin-top:.3rem">${sharesText} @ $${p.price}</div>
           </div>
@@ -567,6 +587,8 @@ async function loadPicks(force = false) {
     document.getElementById('statNext').textContent     = data.next_refresh;
     document.getElementById('lastUpdated').textContent  =
       (data.from_cache ? '⚡ cached · ' : '✓ fresh · ') + data.generated_at;
+    const daysLeft = Math.max(0, Math.ceil((new Date(data.next_refresh) - Date.now()) / 86400000));
+    document.getElementById('statDays').textContent     = daysLeft + (daysLeft === 1 ? ' day' : ' days');
 
     renderPicks(data);
     if (data.all_scores) renderAllScores(data.all_scores);
@@ -683,7 +705,7 @@ async function renderPortfolio() {
   const prices  = {};
   await Promise.all(tickers.map(async t => {
     try {
-      const r = await fetch(`/api/chart/${t}?period=5d`);
+      const r = await fetch(`/api/chart/${t}?period=1mo`);
       const d = await r.json();
       prices[t] = d.prices?.at(-1) ?? null;
     } catch { prices[t] = null; }
@@ -703,7 +725,7 @@ async function renderPortfolio() {
     if (val != null) { totalValue += val; hasValue = true; }
 
     const plStr = pl != null
-      ? `<span class="${pl >= 0 ? 'gain' : 'loss'}">${sign(pl)}${fmt$(pl)} (${sign(plPct)}${plPct.toFixed(1)}%)</span>`
+      ? `<span class="${pl >= 0 ? 'gain' : 'loss'}">${pl >= 0 ? '+' : '-'}$${Math.abs(pl).toFixed(2)} (${pl >= 0 ? '+' : ''}${plPct.toFixed(1)}%)</span>`
       : '—';
 
     rows += `
@@ -730,7 +752,7 @@ async function renderPortfolio() {
         <td class="ps-3 text-secondary fw-bold" colspan="4">Total</td>
         <td class="fw-bold">$${totalValue.toFixed(2)}</td>
         <td class="fw-bold">
-          <span class="${tPL >= 0 ? 'gain' : 'loss'}">${sign(tPL)}${fmt$(tPL)} (${sign(tPLPct)}${tPLPct.toFixed(1)}%)</span>
+          <span class="${tPL >= 0 ? 'gain' : 'loss'}">${tPL >= 0 ? '+' : '-'}$${Math.abs(tPL).toFixed(2)} (${tPL >= 0 ? '+' : ''}${tPLPct.toFixed(1)}%)</span>
         </td>
         <td></td>
       </tr>
@@ -769,6 +791,17 @@ async function removePosition(id) {
   await fetch(`/api/portfolio/${id}`, { method: 'DELETE' });
   portfolio = portfolio.filter(p => p.id !== id);
   await renderPortfolio();
+}
+
+// ─── Copy tickers (improvement #7) ───────────────────────────────────────────
+function copyTickers() {
+  const tickers = [...document.querySelectorAll('.ticker')].map(el => el.textContent.trim());
+  navigator.clipboard.writeText(tickers.join(', ')).then(() => {
+    const btn = document.getElementById('copyBtn');
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 2000);
+  }).catch(() => alert('Copy failed — try manually selecting the tickers.'));
 }
 
 // ─── Backtest ─────────────────────────────────────────────────────────────────
@@ -856,7 +889,7 @@ function renderBacktest(data) {
     <div class="col-6 col-md-4 col-lg-2">
       <div class="stat-box text-center">
         <div class="text-secondary" style="font-size:.68rem">$700 → </div>
-        <div class="fw-bold fs-5 gain">$${m.final_700.toLocaleString()}</div>
+        <div class="fw-bold fs-5 ${m.final_700 >= 700 ? 'gain' : 'loss'}">$${m.final_700.toLocaleString()}</div>
         <span class="text-secondary" style="font-size:.68rem">${m.n_months} months</span>
       </div>
     </div>
@@ -881,6 +914,22 @@ function renderBacktest(data) {
         <span class="text-secondary" style="font-size:.68rem">worst peak→trough</span>
       </div>
     </div>
+    ${m.best_month ? `
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.68rem">Best Month</div>
+        <div class="fw-bold fs-5 gain">+${m.best_month.ret}%</div>
+        <span class="text-secondary" style="font-size:.68rem">${m.best_month.date}</span>
+      </div>
+    </div>` : ''}
+    ${m.worst_month ? `
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.68rem">Worst Month</div>
+        <div class="fw-bold fs-5 loss">${m.worst_month.ret}%</div>
+        <span class="text-secondary" style="font-size:.68rem">${m.worst_month.date}</span>
+      </div>
+    </div>` : ''}
   `;
 
   // ── Equity curve ──────────────────────────────────────────────────────────

@@ -274,6 +274,11 @@ def run_backtest(lookback_years: int = 3, top_n: int = 6, force: bool = False) -
         "final_700":   round(700 * portfolio_val, 2),
     }
 
+    best  = max(monthly, key=lambda x: x["port_ret"])
+    worst = min(monthly, key=lambda x: x["port_ret"])
+    metrics["best_month"]  = {"date": best["date"],  "ret": best["port_ret"]}
+    metrics["worst_month"] = {"date": worst["date"], "ret": worst["port_ret"]}
+
     out = {
         "monthly":        monthly,
         "equity_curve":   eq_curve,
