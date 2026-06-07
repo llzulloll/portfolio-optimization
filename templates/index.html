@@ -243,6 +243,79 @@
       </div>
     </div>
 
+    <!-- ═══════════════════════════════════════════════════════ BACKTEST -->
+    <div class="mt-5" id="backtestSection">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+          <div class="sec-hdr mb-0">Historical Backtest — 3 Years of Monthly Rebalancing</div>
+          <div style="font-size:.68rem; color:var(--muted); margin-top:.2rem">
+            Simulates buying top picks each month &amp; rebalancing. Validates the strategy before you risk real money.
+          </div>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+          <span id="btCacheNote" class="text-secondary" style="font-size:.68rem"></span>
+          <button class="btn btn-sm btn-outline-success" id="btRunBtn" onclick="runBacktest(false)">
+            📊 Run Backtest
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" id="btRefreshBtn" onclick="runBacktest(true)" style="display:none" title="Force fresh data">↻</button>
+        </div>
+      </div>
+
+      <!-- Loading state -->
+      <div id="btLoading" style="display:none; background:var(--card); border:1px solid var(--border); border-radius:10px; padding:2rem; text-align:center">
+        <div class="ring mb-3" style="margin:0 auto"></div>
+        <div class="fw-bold mb-1">Crunching 3 years of data…</div>
+        <div class="text-secondary small" id="btLoadMsg">Downloading price history for 38 stocks…</div>
+        <div style="font-size:.68rem; color:var(--muted); margin-top:.5rem">This takes ~30–40 seconds. Cached for 24h after.</div>
+      </div>
+
+      <!-- Results (hidden until backtest runs) -->
+      <div id="btResults" style="display:none">
+
+        <!-- Bias warning -->
+        <div class="mb-3 p-2 rounded" style="background:rgba(210,153,34,.07); border:1px solid rgba(210,153,34,.2); font-size:.7rem; color:var(--muted)">
+          ⚠️ <strong style="color:#e6edf3">Survivorship bias:</strong>
+          This universe was defined today — we're testing on stocks we already know existed and didn't go bankrupt.
+          Real forward returns may be lower. Use this to validate the momentum logic, not to guarantee future gains.
+        </div>
+
+        <!-- Metrics grid -->
+        <div class="row g-2 mb-4" id="btMetrics"></div>
+
+        <!-- Equity curve -->
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; padding:1.25rem" class="mb-4">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="sec-hdr mb-0">Equity Curve — $1 Invested</div>
+            <div class="d-flex gap-3" style="font-size:.72rem">
+              <span><span style="display:inline-block;width:12px;height:3px;background:#58a6ff;border-radius:2px;vertical-align:middle"></span> Strategy</span>
+              <span><span style="display:inline-block;width:12px;height:3px;background:#8b949e;border-radius:2px;vertical-align:middle"></span> SPY</span>
+              <span><span style="display:inline-block;width:12px;height:3px;background:#d29922;border-radius:2px;vertical-align:middle"></span> QQQ</span>
+            </div>
+          </div>
+          <canvas id="eqCanvas" height="200"></canvas>
+        </div>
+
+        <!-- Monthly returns table -->
+        <div style="background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden">
+          <div class="px-3 pt-3 pb-2 sec-hdr mb-0">Month-by-Month Results</div>
+          <div class="table-responsive" style="max-height:400px; overflow-y:auto">
+            <table class="table table-dark mb-0" style="font-size:.78rem">
+              <thead style="position:sticky; top:0; background:var(--card); z-index:1">
+                <tr style="color:var(--muted); font-size:.7rem">
+                  <th class="ps-3">Month</th>
+                  <th>Strategy</th>
+                  <th>vs SPY</th>
+                  <th>Picks (return)</th>
+                </tr>
+              </thead>
+              <tbody id="btMonthlyBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- /btResults -->
+    </div><!-- /backtestSection -->
+
     <!-- ══════════════════════════════════════════════════ FULL RANKINGS -->
     <div class="mt-5">
       <div class="sec-hdr">Full Rankings (all scored stocks)</div>
@@ -696,6 +769,220 @@ async function removePosition(id) {
   await fetch(`/api/portfolio/${id}`, { method: 'DELETE' });
   portfolio = portfolio.filter(p => p.id !== id);
   await renderPortfolio();
+}
+
+// ─── Backtest ─────────────────────────────────────────────────────────────────
+let eqChart  = null;
+let btLoaded = false;
+
+async function runBacktest(force = false) {
+  document.getElementById('btRunBtn').style.display    = 'none';
+  document.getElementById('btRefreshBtn').style.display = 'none';
+  document.getElementById('btLoading').style.display   = 'block';
+  document.getElementById('btResults').style.display   = 'none';
+
+  const msgs = [
+    'Downloading price history for 38 stocks…',
+    'Running month-by-month simulation…',
+    'Computing momentum scores for each month…',
+    'Calculating drawdowns and Sharpe ratio…',
+    'Building equity curve…',
+    'Almost done…',
+  ];
+  let mi = 0;
+  const iv = setInterval(() => {
+    document.getElementById('btLoadMsg').textContent = msgs[mi++ % msgs.length];
+  }, 5000);
+
+  try {
+    const res  = await fetch(`/api/backtest${force ? '?force=1' : ''}`);
+    const data = await res.json();
+    clearInterval(iv);
+
+    if (data.error) {
+      document.getElementById('btLoading').style.display = 'none';
+      document.getElementById('btRunBtn').style.display  = 'inline-block';
+      alert('Backtest error: ' + data.error);
+      return;
+    }
+
+    renderBacktest(data);
+    document.getElementById('btLoading').style.display    = 'none';
+    document.getElementById('btResults').style.display    = 'block';
+    document.getElementById('btRefreshBtn').style.display = 'inline-block';
+
+    if (data.from_cache) {
+      document.getElementById('btCacheNote').textContent = `⚡ cached · ${data.generated_at}`;
+    } else {
+      document.getElementById('btCacheNote').textContent = `✓ ${data.generated_at}`;
+    }
+
+    btLoaded = true;
+
+  } catch (err) {
+    clearInterval(iv);
+    document.getElementById('btLoading').style.display  = 'none';
+    document.getElementById('btRunBtn').style.display   = 'inline-block';
+    alert('Failed to run backtest. Check the server logs.');
+    console.error(err);
+  }
+}
+
+function renderBacktest(data) {
+  const m = data.metrics;
+
+  // ── Metric cards ──────────────────────────────────────────────────────────
+  const vs = (v, bench) => {
+    const diff = v - bench;
+    const cls  = diff >= 0 ? 'gain' : 'loss';
+    return `<span class="${cls}" style="font-size:.7rem">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}% vs benchmark</span>`;
+  };
+
+  document.getElementById('btMetrics').innerHTML = `
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.68rem">Total Return</div>
+        <div class="fw-bold fs-5 ${m.total_ret >= 0 ? 'gain' : 'loss'}">${m.total_ret >= 0 ? '+' : ''}${m.total_ret}%</div>
+        ${vs(m.total_ret, m.spy_total)}
+      </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.68rem">Ann. Return</div>
+        <div class="fw-bold fs-5 ${m.ann_ret >= 0 ? 'gain' : 'loss'}">${m.ann_ret >= 0 ? '+' : ''}${m.ann_ret}%</div>
+        ${vs(m.ann_ret, m.spy_ann)}
+      </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.68rem">$700 → </div>
+        <div class="fw-bold fs-5 gain">$${m.final_700.toLocaleString()}</div>
+        <span class="text-secondary" style="font-size:.68rem">${m.n_months} months</span>
+      </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.68rem">Sharpe Ratio</div>
+        <div class="fw-bold fs-5 ${m.sharpe >= 1 ? 'gain' : m.sharpe >= 0 ? '' : 'loss'}">${m.sharpe}</div>
+        <span class="text-secondary" style="font-size:.68rem">${m.sharpe >= 1.5 ? 'Excellent' : m.sharpe >= 1 ? 'Good' : m.sharpe >= 0.5 ? 'Okay' : 'Weak'}</span>
+      </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.68rem">Win Rate</div>
+        <div class="fw-bold fs-5 ${m.win_rate >= 55 ? 'gain' : 'loss'}">${m.win_rate}%</div>
+        <span class="text-secondary" style="font-size:.68rem">months positive</span>
+      </div>
+    </div>
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.68rem">Max Drawdown</div>
+        <div class="fw-bold fs-5 loss">${m.max_dd}%</div>
+        <span class="text-secondary" style="font-size:.68rem">worst peak→trough</span>
+      </div>
+    </div>
+  `;
+
+  // ── Equity curve ──────────────────────────────────────────────────────────
+  const eq = data.equity_curve;
+  if (eqChart) eqChart.destroy();
+
+  const eqCtx = document.getElementById('eqCanvas').getContext('2d');
+  eqChart = new Chart(eqCtx, {
+    type: 'line',
+    data: {
+      labels: eq.map(e => e.date),
+      datasets: [
+        {
+          label: 'Strategy',
+          data: eq.map(e => e.port),
+          borderColor: '#58a6ff',
+          backgroundColor: 'rgba(88,166,255,0.06)',
+          borderWidth: 2.5,
+          pointRadius: 0,
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: 'SPY',
+          data: eq.map(e => e.spy),
+          borderColor: '#8b949e',
+          borderWidth: 1.5,
+          borderDash: [4, 3],
+          pointRadius: 0,
+          fill: false,
+          tension: 0.3,
+        },
+        {
+          label: 'QQQ',
+          data: eq.map(e => e.qqq),
+          borderColor: '#d29922',
+          borderWidth: 1.5,
+          borderDash: [4, 3],
+          pointRadius: 0,
+          fill: false,
+          tension: 0.3,
+        },
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#161b22',
+          borderColor: '#30363d',
+          borderWidth: 1,
+          titleColor: '#e6edf3',
+          bodyColor: '#8b949e',
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${((ctx.parsed.y - 1) * 100).toFixed(1)}%`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color:'#8b949e', maxTicksLimit:8, font:{size:11} },
+          grid: { color:'#21262d' }
+        },
+        y: {
+          ticks: {
+            color:'#8b949e',
+            font:{size:11},
+            callback: v => `${((v-1)*100).toFixed(0)}%`
+          },
+          grid: { color:'#21262d' }
+        }
+      }
+    }
+  });
+
+  // ── Monthly table ─────────────────────────────────────────────────────────
+  const months = [...data.monthly].reverse();  // newest first
+  const tbody   = document.getElementById('btMonthlyBody');
+
+  tbody.innerHTML = months.map(m => {
+    const pRet = m.port_ret;
+    const sRet = m.spy_ret;
+    const pCls = pRet >= 0 ? 'gain' : 'loss';
+    const diff  = pRet - sRet;
+    const dCls  = diff >= 0 ? 'gain' : 'loss';
+
+    const pickStr = m.picks.map(p => {
+      const cls = p.ret >= 0 ? 'gain' : 'loss';
+      return `<span class="${cls}">${p.ticker} (${p.ret >= 0 ? '+' : ''}${p.ret}%)</span>`;
+    }).join('  ');
+
+    return `
+      <tr>
+        <td class="ps-3 fw-bold" style="white-space:nowrap">${m.date}</td>
+        <td class="${pCls} fw-bold">${pRet >= 0 ? '+' : ''}${pRet}%</td>
+        <td class="${dCls}">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%</td>
+        <td style="font-size:.72rem">${pickStr}</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────────

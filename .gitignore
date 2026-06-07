@@ -1,5 +1,6 @@
 picks_cache.json
 portfolio.json
+backtest_cache.json
 __pycache__/
 *.pyc
 .venv/

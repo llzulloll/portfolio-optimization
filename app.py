@@ -5,6 +5,7 @@ Open: http://localhost:5000
 """
 from flask import Flask, render_template, jsonify, request
 from stock_picker import get_monthly_picks, get_chart_data
+from backtest import run_backtest
 import json, os, uuid
 
 app = Flask(__name__)
@@ -53,6 +54,13 @@ def portfolio_add():
     pf["positions"].append(pos)
     _save_pf(pf)
     return jsonify({"ok": True, "id": pos["id"]})
+
+
+@app.get("/api/backtest")
+def backtest():
+    force = request.args.get("force") == "1"
+    years = int(request.args.get("years", "3"))
+    return jsonify(run_backtest(lookback_years=years, force=force))
 
 
 @app.delete("/api/portfolio/<pos_id>")
