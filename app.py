@@ -1,27 +1,46 @@
 """
 Roth IRA Stock Picker — Flask server
-Run:  python app.py
-Open: http://localhost:5000
+Local:  python app.py  →  http://localhost:5000
+Deploy: Render.com (see README for steps)
 """
 from flask import Flask, render_template, jsonify, request
+from flask_sqlalchemy import SQLAlchemy
 from stock_picker import get_monthly_picks, get_chart_data
 from backtest import run_backtest
-import json, os, uuid
+import os, uuid
 
 app = Flask(__name__)
-PORTFOLIO_FILE = "portfolio.json"
+
+# SQLite locally, upgradeable to Postgres via DATABASE_URL env var on Render
+db_url = os.environ.get("DATABASE_URL", "sqlite:///portfolio.db")
+# Render gives postgres:// but SQLAlchemy needs postgresql://
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = db_url
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+db = SQLAlchemy(app)
 
 
-def _load_pf() -> dict:
-    if os.path.exists(PORTFOLIO_FILE):
-        with open(PORTFOLIO_FILE) as f:
-            return json.load(f)
-    return {"positions": []}
+class Position(db.Model):
+    id        = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    ticker    = db.Column(db.String(10),  nullable=False)
+    shares    = db.Column(db.Float,       nullable=False)
+    avg_cost  = db.Column(db.Float,       nullable=False)
+    date      = db.Column(db.String(20),  nullable=True)
+
+    def to_dict(self):
+        return {
+            "id":       self.id,
+            "ticker":   self.ticker,
+            "shares":   self.shares,
+            "avg_cost": self.avg_cost,
+            "date":     self.date,
+        }
 
 
-def _save_pf(data: dict) -> None:
-    with open(PORTFOLIO_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+with app.app_context():
+    db.create_all()
 
 
 @app.get("/")
@@ -41,21 +60,6 @@ def chart(ticker: str):
     return jsonify(get_chart_data(ticker.upper(), period))
 
 
-@app.get("/api/portfolio")
-def portfolio_get():
-    return jsonify(_load_pf())
-
-
-@app.post("/api/portfolio")
-def portfolio_add():
-    pf = _load_pf()
-    pos = request.json
-    pos["id"] = str(uuid.uuid4())
-    pf["positions"].append(pos)
-    _save_pf(pf)
-    return jsonify({"ok": True, "id": pos["id"]})
-
-
 @app.get("/api/backtest")
 def backtest():
     force = request.args.get("force") == "1"
@@ -63,11 +67,32 @@ def backtest():
     return jsonify(run_backtest(lookback_years=years, force=force))
 
 
+@app.get("/api/portfolio")
+def portfolio_get():
+    positions = Position.query.all()
+    return jsonify({"positions": [p.to_dict() for p in positions]})
+
+
+@app.post("/api/portfolio")
+def portfolio_add():
+    data = request.json
+    pos  = Position(
+        ticker   = data["ticker"].upper(),
+        shares   = float(data["shares"]),
+        avg_cost = float(data["avg_cost"]),
+        date     = data.get("date"),
+    )
+    db.session.add(pos)
+    db.session.commit()
+    return jsonify({"ok": True, "id": pos.id})
+
+
 @app.delete("/api/portfolio/<pos_id>")
 def portfolio_delete(pos_id: str):
-    pf = _load_pf()
-    pf["positions"] = [p for p in pf["positions"] if p.get("id") != pos_id]
-    _save_pf(pf)
+    pos = Position.query.get(pos_id)
+    if pos:
+        db.session.delete(pos)
+        db.session.commit()
     return jsonify({"ok": True})
 
 
