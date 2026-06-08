@@ -151,18 +151,62 @@ def run_backtest(lookback_years: int = 3, top_n: int = 6, force: bool = False) -
         return {"error": "Not enough historical data.", "monthly": [], "equity_curve": [], "metrics": {}}
 
     # ── Month-by-month simulation ──────────────────────────────────────────────
-    portfolio_val = 1.0
-    spy_val       = 1.0
-    qqq_val       = 1.0
-    peak_val      = 1.0
+    portfolio_val    = 1.0
+    spy_val          = 1.0
+    qqq_val          = 1.0
+    peak_val         = 1.0
+    cash_months      = 0  # months spent in cash due to bear regime
 
     monthly    = []
     eq_curve   = [{"date": month_ends[0].strftime("%Y-%m"), "port": 1.0, "spy": 1.0, "qqq": 1.0}]
     drawdowns  = []
 
+    def bench_ret(prices: pd.Series, d1, d2) -> float:
+        a = prices[prices.index >= d1].dropna()
+        b = prices[prices.index >= d2].dropna()
+        if a.empty or b.empty:
+            return 0.0
+        v1, v2 = float(a.iloc[0]), float(b.iloc[0])
+        return 0.0 if v1 == 0 or np.isnan(v1) or np.isnan(v2) else (v2 / v1) - 1
+
     for i in range(len(month_ends) - 1):
         buy_dt  = month_ends[i]
         sell_dt = month_ends[i + 1]
+
+        spy_ret = bench_ret(spy, buy_dt, sell_dt)
+        qqq_ret = bench_ret(qqq, buy_dt, sell_dt)
+
+        # ── Regime filter: hold cash if SPY is below its 200-day MA ──────────
+        spy_hist = spy.loc[:buy_dt].dropna()
+        in_bull  = True
+        if len(spy_hist) >= 200:
+            spy_ma200 = float(spy_hist.rolling(200).mean().iloc[-1])
+            in_bull   = float(spy_hist.iloc[-1]) > spy_ma200
+
+        if not in_bull:
+            spy_ret = bench_ret(spy, buy_dt, sell_dt)
+            qqq_ret = bench_ret(qqq, buy_dt, sell_dt)
+            spy_val *= (1 + spy_ret)
+            qqq_val *= (1 + qqq_ret)
+            peak_val = max(peak_val, portfolio_val)
+            drawdowns.append((portfolio_val / peak_val - 1) * 100)
+            cash_months += 1
+            monthly.append({
+                "date":     sell_dt.strftime("%Y-%m"),
+                "port_ret": 0.0,
+                "spy_ret":  round(spy_ret * 100, 2),
+                "qqq_ret":  round(qqq_ret * 100, 2),
+                "port_val": round(portfolio_val, 4),
+                "picks":    [],
+                "regime":   "CASH",
+            })
+            eq_curve.append({
+                "date": sell_dt.strftime("%Y-%m"),
+                "port": round(portfolio_val, 4),
+                "spy":  round(spy_val, 4),
+                "qqq":  round(qqq_val, 4),
+            })
+            continue
 
         # Score every ticker using only data available on buy_dt (no lookahead bias)
         scored = []
@@ -215,18 +259,6 @@ def run_backtest(lookback_years: int = 3, top_n: int = 6, force: bool = False) -
         if weight_used < 1.0:
             port_ret /= weight_used  # normalise for any missing picks
 
-        # Benchmark returns for same period
-        def bench_ret(prices: pd.Series, d1, d2) -> float:
-            a = prices[prices.index >= d1].dropna()
-            b = prices[prices.index >= d2].dropna()
-            if a.empty or b.empty:
-                return 0.0
-            v1, v2 = float(a.iloc[0]), float(b.iloc[0])
-            return 0.0 if v1 == 0 or np.isnan(v1) or np.isnan(v2) else (v2 / v1) - 1
-
-        spy_ret = bench_ret(spy, buy_dt, sell_dt)
-        qqq_ret = bench_ret(qqq, buy_dt, sell_dt)
-
         portfolio_val *= (1 + port_ret)
         spy_val       *= (1 + spy_ret)
         qqq_val       *= (1 + qqq_ret)
@@ -240,6 +272,7 @@ def run_backtest(lookback_years: int = 3, top_n: int = 6, force: bool = False) -
             "qqq_ret":  round(qqq_ret * 100, 2),
             "port_val": round(portfolio_val, 4),
             "picks":    pick_details,
+            "regime":   "BULL",
         })
         eq_curve.append({
             "date": sell_dt.strftime("%Y-%m"),
@@ -269,6 +302,7 @@ def run_backtest(lookback_years: int = 3, top_n: int = 6, force: bool = False) -
         "sharpe":      round(sharpe, 2),
         "win_rate":    round(sum(1 for r in port_rets if r > 0) / n * 100, 1),
         "max_dd":      round(min(drawdowns), 1) if drawdowns else 0.0,
+        "cash_months": cash_months,
         "avg_monthly": round(float(np.mean(port_rets)), 2),
         "n_months":    n,
         "final_700":   round(700 * portfolio_val, 2),

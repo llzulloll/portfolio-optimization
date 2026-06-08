@@ -113,6 +113,15 @@
     /* ── Leveraged warning ── */
     .lev-warn { font-size: .68rem; color: var(--red); margin-top: .35rem; }
 
+    /* ── Regime banner ── */
+    .regime-bull { background: rgba(63,185,80,.08);  border: 1px solid rgba(63,185,80,.25); }
+    .regime-bear { background: rgba(248,81,73,.08);  border: 1px solid rgba(248,81,73,.25); }
+
+    /* ── Stop-loss badge ── */
+    .stop-badge { font-size: .65rem; padding: .15rem .5rem; border-radius: 20px; font-weight: 600; }
+    .stop-ok   { background: rgba(63,185,80,.12);  color: var(--green); }
+    .stop-hit  { background: rgba(248,81,73,.12);  color: var(--red); }
+
     /* ── Section header ── */
     .sec-hdr {
       font-size: .72rem; text-transform: uppercase;
@@ -184,6 +193,18 @@
         <div class="fw-bold fs-5" id="statDays">—</div>
       </div>
     </div>
+  </div>
+
+  <!-- Regime banner -->
+  <div id="regimeBanner" class="rounded p-3 mb-4 d-flex align-items-center justify-content-between" style="display:none!important">
+    <div class="d-flex align-items-center gap-2">
+      <span id="regimeIcon" style="font-size:1.2rem"></span>
+      <div>
+        <div class="fw-bold" id="regimeTitle" style="font-size:.9rem"></div>
+        <div class="text-secondary" id="regimeDesc" style="font-size:.72rem"></div>
+      </div>
+    </div>
+    <div class="text-end" style="font-size:.72rem; color:var(--muted)" id="regimeSpy"></div>
   </div>
 
   <!-- Picks section -->
@@ -266,7 +287,7 @@
       <div id="btLoading" style="display:none; background:var(--card); border:1px solid var(--border); border-radius:10px; padding:2rem; text-align:center">
         <div class="ring mb-3" style="margin:0 auto"></div>
         <div class="fw-bold mb-1">Crunching 3 years of data…</div>
-        <div class="text-secondary small" id="btLoadMsg">Downloading price history for 38 stocks…</div>
+        <div class="text-secondary small" id="btLoadMsg">Downloading price history for all stocks…</div>
         <div style="font-size:.68rem; color:var(--muted); margin-top:.5rem">This takes ~30–40 seconds. Cached for 24h after.</div>
       </div>
 
@@ -432,6 +453,25 @@ function retPill(val, label) {
 const RANKS = ['🥇','🥈','🥉','4th','5th','6th','7th','8th'];
 
 function renderPicks(data) {
+  // ── Regime banner ────────────────────────────────────────────────────────
+  const banner = document.getElementById('regimeBanner');
+  const r = data.regime;
+  if (r) {
+    const bull = r.bull;
+    banner.className = `rounded p-3 mb-4 d-flex align-items-center justify-content-between ${bull ? 'regime-bull' : 'regime-bear'}`;
+    document.getElementById('regimeIcon').textContent  = bull ? '📈' : '🐻';
+    document.getElementById('regimeTitle').textContent = bull
+      ? 'Bull Market — Momentum strategy is active'
+      : 'Bear Market — Caution: SPY below 200-day MA';
+    document.getElementById('regimeDesc').textContent  = bull
+      ? 'SPY is above its 200-day moving average. Conditions favor aggressive momentum plays.'
+      : 'SPY has broken below its 200-day MA. Consider holding cash or reducing position sizes.';
+    document.getElementById('regimeSpy').innerHTML =
+      `SPY $${r.spy_price} &nbsp;|&nbsp; 200MA $${r.spy_ma200} &nbsp;|&nbsp; ` +
+      `<span class="${bull ? 'gain' : 'loss'}">${r.pct_above >= 0 ? '+' : ''}${r.pct_above}%</span>`;
+    banner.style.removeProperty('display');
+  }
+
   const grid = document.getElementById('picksGrid');
   grid.innerHTML = '';
 
@@ -458,6 +498,15 @@ function renderPicks(data) {
     const levWarn = p.leveraged
       ? `<div class="lev-warn">⚠️ 3× leveraged — exit fast if momentum breaks</div>`
       : '';
+
+    const stopBadge = p.stop_price != null ? (() => {
+      const cls  = p.stop_hit ? 'stop-hit' : 'stop-ok';
+      const icon = p.stop_hit ? '⚠️' : '🛡';
+      const label = p.stop_hit
+        ? `Stop triggered — price below $${p.stop_price}`
+        : `Stop: $${p.stop_price} (sell if breached)`;
+      return `<span class="stop-badge ${cls}">${icon} ${label}</span>`;
+    })() : '';
 
     // Score breakdown (improvement #6)
     const subScores = (p.score_mom != null) ? `
@@ -509,6 +558,7 @@ function renderPicks(data) {
           </div>
 
           ${levWarn}
+          ${stopBadge ? `<div class="mt-1">${stopBadge}</div>` : ''}
 
           <div class="mt-auto pt-2" style="border-top:1px solid var(--border)">
             <div class="d-flex justify-content-between align-items-center mb-1">
@@ -930,6 +980,14 @@ function renderBacktest(data) {
         <span class="text-secondary" style="font-size:.68rem">${m.worst_month.date}</span>
       </div>
     </div>` : ''}
+    ${m.cash_months != null ? `
+    <div class="col-6 col-md-4 col-lg-2">
+      <div class="stat-box text-center">
+        <div class="text-secondary" style="font-size:.68rem">Bear Months (Cash)</div>
+        <div class="fw-bold fs-5" style="color:var(--muted)">${m.cash_months}</div>
+        <span class="text-secondary" style="font-size:.68rem">dodged bear markets</span>
+      </div>
+    </div>` : ''}
   `;
 
   // ── Equity curve ──────────────────────────────────────────────────────────
@@ -1012,6 +1070,16 @@ function renderBacktest(data) {
   const tbody   = document.getElementById('btMonthlyBody');
 
   tbody.innerHTML = months.map(m => {
+    if (m.regime === 'CASH') {
+      return `
+        <tr style="opacity:.55">
+          <td class="ps-3 fw-bold" style="white-space:nowrap">${m.date}</td>
+          <td style="color:var(--muted)">0.0% <span style="font-size:.65rem">(cash)</span></td>
+          <td style="color:var(--muted)">${(m.port_ret - m.spy_ret).toFixed(1)}%</td>
+          <td style="font-size:.72rem; color:var(--muted)">🐻 Bear regime — held cash</td>
+        </tr>
+      `;
+    }
     const pRet = m.port_ret;
     const sRet = m.spy_ret;
     const pCls = pRet >= 0 ? 'gain' : 'loss';

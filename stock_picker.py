@@ -143,6 +143,14 @@ def _score_ticker(ticker: str, category: str) -> dict | None:
         elif 50 <= rsi <= 72:
             signals.append({"text": f"RSI {rsi:.0f}",          "cls": "success"})
 
+        # ── Volatility & stop-loss ────────────────────────────────────────────
+        returns_21d = c.pct_change().dropna().iloc[-21:]
+        vol_21d     = float(returns_21d.std()) if len(returns_21d) >= 5 else 0.02
+
+        high_52w  = float(c.rolling(min(252, len(c))).max().iloc[-1])
+        stop_price = round(high_52w * 0.85, 2)   # 15% trailing stop from 52-week high
+        stop_hit   = bool(price < stop_price)
+
         # Plain text reason for "Why this pick?"
         reasons = []
         if r1m > 15:
@@ -176,6 +184,9 @@ def _score_ticker(ticker: str, category: str) -> dict | None:
             "score_trend": round(float(trend), 1),
             "score_rsi":   round(rsi_score, 1),
             "score_vol":   round(vol_score, 1),
+            "vol_21d":     round(vol_21d, 4),
+            "stop_price":  stop_price,
+            "stop_hit":    stop_hit,
         }
     except Exception as e:
         print(f"  [skip] {ticker}: {e}")
@@ -184,12 +195,40 @@ def _score_ticker(ticker: str, category: str) -> dict | None:
 
 def _allocate(picks: list[dict], budget: float) -> list[dict]:
     scores = np.array([p["score"] for p in picks], dtype=float)
-    weights = scores ** 2  # square-weight to concentrate money in top picks
+    vols   = np.array([p.get("vol_21d", 0.02) for p in picks], dtype=float)
+    vols   = np.clip(vols, 0.005, 0.12)
+
+    score_w = scores ** 2;  score_w /= score_w.sum()
+    vol_w   = 1.0 / vols;   vol_w   /= vol_w.sum()
+
+    # 60% score-driven, 40% volatility-adjusted — captures momentum while
+    # capping how much the most explosive (and crashable) names get
+    weights = 0.60 * score_w + 0.40 * vol_w
     weights /= weights.sum()
+
     for p, w in zip(picks, weights):
         p["alloc_pct"] = round(float(w * 100), 1)
         p["alloc_usd"] = round(float(w * budget), 2)
     return picks
+
+
+def get_regime() -> dict:
+    """Check whether SPY is above its 200-day MA (bull) or below it (bear)."""
+    try:
+        spy = yf.Ticker("SPY").history(period="1y", timeout=15)["Close"].dropna()
+        if len(spy) < 50:
+            return {"bull": True, "spy_price": 0, "spy_ma200": 0, "pct_above": 0}
+        ma200 = float(spy.rolling(200).mean().dropna().iloc[-1]) if len(spy) >= 200 else float(spy.mean())
+        price = float(spy.iloc[-1])
+        return {
+            "bull":       price > ma200,
+            "spy_price":  round(price, 2),
+            "spy_ma200":  round(ma200, 2),
+            "pct_above":  round((price / ma200 - 1) * 100, 1),
+        }
+    except Exception as e:
+        print(f"  [regime] {e}")
+        return {"bull": True, "spy_price": 0, "spy_ma200": 0, "pct_above": 0}
 
 
 def get_monthly_picks(force: bool = False, budget: float = 700, top_n: int = 6) -> dict:
@@ -204,6 +243,7 @@ def get_monthly_picks(force: bool = False, budget: float = 700, top_n: int = 6) 
             return cached
 
     print("Scanning market (this takes ~20 seconds)...")
+    regime   = get_regime()
     all_args = [(t, cat) for cat, tks in UNIVERSE.items() for t in tks]
 
     results: list[dict] = []
@@ -242,6 +282,7 @@ def get_monthly_picks(force: bool = False, budget: float = 700, top_n: int = 6) 
         "total_scored": len(results),
         "next_refresh": (datetime.now() + timedelta(days=30)).strftime("%B %d, %Y"),
         "all_scores":   sorted(results, key=lambda x: x["score"], reverse=True),
+        "regime":       regime,
     }
     with open(CACHE_FILE, "w") as f:
         json.dump(out, f, indent=2)
