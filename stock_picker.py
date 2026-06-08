@@ -14,21 +14,50 @@ CACHE_FILE = "picks_cache.json"
 CACHE_HOURS = 6  # auto-refresh every 6h; force anytime via the button
 
 # ─── Stock universe ──────────────────────────────────────────────────────────
-# Aggressive picks for a 21-year-old: high-growth tech, small-cap rockets,
-# and leveraged ETFs for maximum upside exposure.
+# Aggressive, wide opportunity set for a 21-year-old: the scanner ranks ALL of
+# these every month and surfaces only the strongest momentum names. A bigger
+# universe = more shots at catching what's actually working right now.
+# Tickers with no/short history are skipped automatically, so it's safe to be
+# generous here. Add or remove freely.
 UNIVERSE: dict[str, list[str]] = {
-    "AI & High-Growth Tech": [
-        "NVDA", "AMD", "META", "AVGO", "MSFT", "GOOGL", "ARM",
-        "CRWD", "NET", "PLTR", "AXON", "APP", "DDOG", "TTD",
-        "DUOL", "CAVA", "CELH", "SMCI",
+    "Mega-Cap Tech & AI": [
+        "NVDA", "AMD", "META", "AVGO", "MSFT", "GOOGL", "AAPL", "AMZN",
+        "TSLA", "ARM", "MU", "TSM", "ASML", "QCOM", "NFLX", "ORCL",
+    ],
+    "Semis & Hardware": [
+        "SMCI", "MRVL", "LRCX", "AMAT", "KLAC", "ON", "NXPI", "MCHP",
+        "ANET", "DELL", "VRT", "CRDO", "ALAB", "INTC",
+    ],
+    "Software & Cloud": [
+        "CRWD", "NET", "PLTR", "DDOG", "SNOW", "PANW", "ZS", "FTNT",
+        "NOW", "MDB", "TEAM", "HUBS", "SHOP", "APP", "TTD", "DUOL",
+        "S", "GTLB", "PATH", "CFLT",
+    ],
+    "Fintech & Crypto": [
+        "HOOD", "SOFI", "COIN", "MSTR", "AFRM", "PYPL", "NU", "UPST",
+        "BILL", "MARA", "RIOT", "CLSK",
+    ],
+    "Consumer Growth": [
+        "CAVA", "CELH", "CMG", "COST", "DASH", "ABNB", "UBER", "LULU",
+        "ELF", "WING", "TXRH", "DKNG", "RDDT",
+    ],
+    "Healthcare & Biotech": [
+        "LLY", "ISRG", "VRTX", "REGN", "NVO", "HIMS", "RXRX", "TEM",
+        "NTRA", "CRSP", "VKTX",
+    ],
+    "Industrials & Defense": [
+        "AXON", "GE", "RTX", "ETN", "HWM", "CAT", "DE", "PWR", "URI", "PH",
+    ],
+    "Space, Nuclear & Energy": [
+        "RKLB", "ASTS", "ACHR", "JOBY", "LUNR", "OKLO", "NNE", "SMR",
+        "CEG", "VST", "GEV", "FSLR", "ENPH",
     ],
     "Small-Cap Rockets": [
-        "RKLB", "ASTS", "ACHR", "JOBY", "LUNR", "SOUN",
-        "IONQ", "RXRX", "APLD", "HOOD", "SOFI", "UPST",
-        "BBAI", "OKLO", "NNE",
+        "SOUN", "IONQ", "BBAI", "APLD", "QBTS", "RGTI", "AI", "NBIS",
+        "ACHC", "QUBT",
     ],
     "Leveraged ETFs": [
-        "TQQQ", "SOXL", "TECL", "UPRO", "FNGU",
+        "TQQQ", "SOXL", "TECL", "UPRO", "FNGU", "USD", "LABU",
     ],
 }
 
@@ -178,7 +207,7 @@ def get_monthly_picks(force: bool = False, budget: float = 700, top_n: int = 6) 
     all_args = [(t, cat) for cat, tks in UNIVERSE.items() for t in tks]
 
     results: list[dict] = []
-    with ThreadPoolExecutor(max_workers=10) as ex:
+    with ThreadPoolExecutor(max_workers=20) as ex:
         futures = {ex.submit(_score_ticker, t, cat): t for t, cat in all_args}
         for fut in as_completed(futures):
             res = fut.result()
